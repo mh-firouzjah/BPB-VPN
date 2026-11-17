@@ -109,6 +109,8 @@ jobs:
         run: flutter test --no-pub
 
       - name: Build ARM64 APK before personal signing
+        env:
+          ANDROID_ABIS: arm64-v8a
         run: |
           set -euo pipefail
 
