@@ -1,0 +1,126 @@
+name: Build APKs
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-apks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Android APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+
+      - name: Validate bundled scanner CIDRs
+        working-directory: scanner
+        run: go run ./cmd/normalize_scanner_cidrs --check ../assets/scanner
+
+      - name: Build Psiphon native libraries
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: bash scripts/build_psiphon.sh
+
+      - name: Fetch verified Tor and lyrebird Android bundles
+        run: bash scripts/fetch_tor.sh
+
+      - name: Build Xray Android library
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: bash scripts/build_xray.sh
+
+      - name: Free Go build cache
+        run: |
+          go clean -cache -modcache
+          df -h /
+
+      - name: Fetch routing data
+        run: bash scripts/fetch_geo.sh
+
+      - name: Build minified Cloudflare Worker asset
+        working-directory: worker
+        run: |
+          npm install --ignore-scripts --no-package-lock --no-audit --no-fund
+          npm run minify
+
+      - name: Fetch Tor bridges for the setup wizard
+        run: bash scripts/fetch_tor_bridges.sh
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Run Flutter tests
+        run: flutter test --no-pub
+
+      - name: Build split and universal APKs
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)"
+          mkdir -p dist
+
+          # The Android Gradle config falls back to the standard debug keystore
+          # when android/key.properties is absent. No signing secrets are needed.
+          flutter build apk --release --split-per-abi --no-pub
+
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            apk="build/app/outputs/flutter-apk/app-$abi-release.apk"
+            test -s "$apk"
+            cp "$apk" "dist/bpb-$version-$abi.apk"
+          done
+
+          flutter build apk --release --no-pub
+          apk="build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$apk"
+          cp "$apk" "dist/bpb-$version-universal.apk"
+
+          sha256sum dist/bpb-*.apk > dist/SHA256SUMS
+          {
+            echo "Version: $version"
+            echo "Commit: $GITHUB_SHA"
+            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Signing: Android debug keystore (not the upstream release key)"
+          } > dist/BUILD-INFO.txt
+
+      - name: Upload APKs and checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: bpb-apks-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
