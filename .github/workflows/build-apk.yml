@@ -70,13 +70,19 @@ jobs:
         working-directory: scanner
         run: go run ./cmd/normalize_scanner_cidrs --check ../assets/scanner
 
-      - name: Build Psiphon native library
+      - name: Build Psiphon ARM64 native library
+        env:
+          ANDROID_ABIS: arm64-v8a
         run: bash scripts/build_psiphon.sh
 
-      - name: Fetch verified Tor and lyrebird Android bundles
+      - name: Fetch verified Tor and lyrebird ARM64 bundle
+        env:
+          ANDROID_ABIS: arm64-v8a
         run: bash scripts/fetch_tor.sh
 
-      - name: Build Xray Android library
+      - name: Build Xray ARM64 Android library
+        env:
+          ANDROID_ABIS: arm64-v8a
         run: bash scripts/build_xray.sh
 
       - name: Free Go build cache
@@ -102,7 +108,7 @@ jobs:
       - name: Run Flutter tests
         run: flutter test --no-pub
 
-      - name: Build ARM64 APK (no personal signing key available)
+      - name: Build ARM64 APK before personal signing
         run: |
           set -euo pipefail
 
@@ -126,7 +132,6 @@ jobs:
           fi
 
           mkdir -p dist
-          cp "$apk" dist/unsigned.apk
 
       - name: Sign and verify with the persistent personal key
         env:
@@ -160,7 +165,7 @@ jobs:
           "$apksigner" sign --ks "$keystore" --ks-type JKS \
             --ks-key-alias "$KEY_ALIAS" \
             --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
-            --out "$apk" dist/unsigned.apk
+            --out "$apk" build/app/outputs/flutter-apk/app-release.apk
 
           signature_output="$("$apksigner" verify --verbose --print-certs "$apk")"
           printf '%s\n' "$signature_output" | tee dist/APK-SIGNATURE.txt
@@ -175,7 +180,6 @@ jobs:
             exit 1
           fi
 
-          rm -f dist/unsigned.apk
           sha256sum "$apk" > dist/SHA256SUMS
           {
             echo "Version: $VERSION+$BUILD_NUMBER"
@@ -184,15 +188,6 @@ jobs:
             echo "Signing: persistent personal JKS; certificate fingerprint verified"
             echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           } > dist/BUILD-INFO.txt
-      - name: Upload ARM64 APK and verification data
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: bpb-arm64-${{ github.sha }}
-          path: dist/*
-          if-no-files-found: error
-          retention-days: 90
-          compression-level: 0
-
       - name: Publish GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -207,5 +202,5 @@ jobs:
             dist/APK-SIGNATURE.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "BPB VPN ${VERSION} (build ${BUILD_NUMBER})" \
-            --notes "Personal ARM64 build from commit $GITHUB_SHA. APK signature fingerprint is included in APK-SIGNATURE.txt. Verify the APK with SHA256SUMS." \
+            --notes "Single-ABI Android arm64-v8a build from commit $GITHUB_SHA. Download the APK asset directly; APK signature fingerprint is in APK-SIGNATURE.txt and SHA256SUMS verifies the file." \
             --prerelease
