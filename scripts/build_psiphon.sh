@@ -26,17 +26,8 @@ build() { # abi goarch clang-target [goarm]
     go build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -checklinkname=0" -o "$OUT/$1/libpsiphon.so" .
 }
 
-read -r -a TARGET_ABIS <<< "${ANDROID_ABIS:-arm64-v8a armeabi-v7a x86_64}"
-for abi in "${TARGET_ABIS[@]}"; do
-  case "$abi" in
-    arm64-v8a)   build arm64-v8a arm64 aarch64-linux-android ;;
-    armeabi-v7a) build armeabi-v7a arm armv7a-linux-androideabi 7 ;;
-    x86_64)      build x86_64 amd64 x86_64-linux-android ;;
-    *)
-      echo "::error::Unsupported Psiphon Android ABI: $abi"
-      exit 1
-      ;;
-  esac
-done
+build arm64-v8a arm64 aarch64-linux-android
+build armeabi-v7a arm armv7a-linux-androideabi 7
+build x86_64 amd64 x86_64-linux-android
 go version
 ls -la "$OUT"/*/libpsiphon.so

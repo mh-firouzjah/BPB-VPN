@@ -11,15 +11,6 @@ val keystoreProperties = Properties().apply {
     if (file.exists()) file.inputStream().use { load(it) }
 }
 
-// The single-device workflow sets ANDROID_ABIS=arm64-v8a. Other builds retain all
-// ABIs previously supported by the project.
-val packagedAbis = System.getenv("ANDROID_ABIS")
-    ?.split(",")
-    ?.map { it.trim() }
-    ?.filter { it.isNotEmpty() }
-    ?.takeIf { it.isNotEmpty() }
-    ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64")
-
 android {
     namespace = "com.bpb"
     compileSdk = flutter.compileSdkVersion
@@ -35,11 +26,6 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 24
-        ndk {
-            // Flutter 3.35+ pre-populates these filters; clear them before selecting this build's ABIs.
-            abiFilters.clear()
-            abiFilters.addAll(packagedAbis)
-        }
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)

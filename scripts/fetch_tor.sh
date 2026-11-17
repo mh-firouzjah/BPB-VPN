@@ -25,26 +25,7 @@ declare -A SHA=(
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-read -r -a TARGET_ABIS <<< "${ANDROID_ABIS:-arm64-v8a armeabi-v7a x86_64}"
-archs=()
-for abi in "${TARGET_ABIS[@]}"; do
-  case "$abi" in
-    arm64-v8a)   arch=aarch64 ;;
-    armeabi-v7a) arch=armv7 ;;
-    x86_64)      arch=x86_64 ;;
-    *)
-      echo "::error::Unsupported Tor Android ABI: $abi"
-      exit 1
-      ;;
-  esac
-  archs+=("$arch")
-done
-if (("${#archs[@]}" == 0)); then
-  echo "::error::ANDROID_ABIS did not select any Tor bundles"
-  exit 1
-fi
-
-for arch in "${archs[@]}"; do
+for arch in aarch64 armv7 x86_64; do
   file="tor-expert-bundle-android-$arch-$VERSION.tar.gz"
   echo "fetching $file"
   curl -fsSL -o "$TMP/$file" "$BASE/$file"
@@ -55,8 +36,7 @@ for arch in "${archs[@]}"; do
   cp "$TMP/$arch/tor/pluggable_transports/lyrebird" "$JNI/${ABI[$arch]}/liblyrebird.so"
 done
 
-ASSET_ARCH="${archs[0]}"
-cp "$TMP/$ASSET_ARCH/data/geoip" "$ASSETS/tor_geoip"
-cp "$TMP/$ASSET_ARCH/data/geoip6" "$ASSETS/tor_geoip6"
-cp "$TMP/$ASSET_ARCH/tor/pluggable_transports/pt_config.json" "$ASSETS/tor_pt_config.json"
+cp "$TMP/aarch64/data/geoip" "$ASSETS/tor_geoip"
+cp "$TMP/aarch64/data/geoip6" "$ASSETS/tor_geoip6"
+cp "$TMP/aarch64/tor/pluggable_transports/pt_config.json" "$ASSETS/tor_pt_config.json"
 ls -la "$JNI"/*/libtor.so "$JNI"/*/liblyrebird.so "$ASSETS"/tor_*

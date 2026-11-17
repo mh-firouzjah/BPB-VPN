@@ -18,31 +18,7 @@ gomobile init
 
 mkdir -p "$(dirname "$OUT")"
 # -checklinkname=0: a dependency (wlynxg/anet) links into net internals, as in Psiphon's build.
-target="android"
-if [[ -n "${ANDROID_ABIS:-}" ]]; then
-  read -r -a TARGET_ABIS <<< "$ANDROID_ABIS"
-  targets=()
-  for abi in "${TARGET_ABIS[@]}"; do
-    case "$abi" in
-      arm64-v8a)   arch=arm64 ;;
-      armeabi-v7a) arch=arm ;;
-      x86)         arch=386 ;;
-      x86_64)      arch=amd64 ;;
-      *)
-        echo "::error::Unsupported Xray Android ABI: $abi"
-        exit 1
-        ;;
-    esac
-    targets+=("android/$arch")
-  done
-  if (("${#targets[@]}" == 0)); then
-    echo "::error::ANDROID_ABIS did not select any Xray targets"
-    exit 1
-  fi
-  target="$(IFS=,; printf '%s' "${targets[*]}")"
-fi
-
-gomobile bind -target="$target" -androidapi 24 -trimpath -ldflags "-s -w -buildid= -checklinkname=0" -o "$OUT" .
+gomobile bind -target=android -androidapi 24 -trimpath -ldflags "-s -w -buildid= -checklinkname=0" -o "$OUT" .
 rm -f "${OUT%.aar}-sources.jar"
 go version
 ls -la "$OUT"
