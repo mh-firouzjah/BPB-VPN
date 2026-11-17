@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-arm64-${{ github.ref }}
@@ -190,5 +190,22 @@ jobs:
           name: bpb-arm64-${{ github.sha }}
           path: dist/*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
           compression-level: 0
+
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="bpb-v${VERSION}-build.${BUILD_NUMBER}"
+
+          gh release create "$tag" \
+            "dist/bpb-${VERSION}-${BUILD_NUMBER}-arm64-v8a.apk" \
+            dist/SHA256SUMS \
+            dist/BUILD-INFO.txt \
+            dist/APK-SIGNATURE.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "BPB VPN ${VERSION} (build ${BUILD_NUMBER})" \
+            --notes "Personal ARM64 build from commit $GITHUB_SHA. APK signature fingerprint is included in APK-SIGNATURE.txt. Verify the APK with SHA256SUMS." \
+            --prerelease
