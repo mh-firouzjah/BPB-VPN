@@ -133,11 +133,13 @@ jobs:
           } > android/key.properties
           chmod 600 android/key.properties
 
-          flutter build apk --release --target-platform android-arm64 --no-pub
+          build_number=$((100000 + GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))
+          flutter build apk --release --target-platform android-arm64 \
+            --build-number "$build_number" --no-pub
 
           apk="build/app/outputs/flutter-apk/app-release.apk"
           test -s "$apk"
-          cp "$apk" "dist/bpb-$version-arm64-v8a.apk"
+          cp "$apk" "dist/bpb-$version-$build_number-arm64-v8a.apk"
 
           sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?Android SDK path is missing}}"
           apksigner="$(find "$sdk/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
