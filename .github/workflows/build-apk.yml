@@ -52,16 +52,12 @@ jobs:
         run: go run ./cmd/normalize_scanner_cidrs --check ../assets/scanner
 
       - name: Build Psiphon native libraries
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
         run: bash scripts/build_psiphon.sh
 
       - name: Fetch verified Tor and lyrebird Android bundles
         run: bash scripts/fetch_tor.sh
 
       - name: Build Xray Android library
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
         run: bash scripts/build_xray.sh
 
       - name: Free Go build cache
