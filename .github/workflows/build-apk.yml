@@ -1,57 +1,76 @@
-name: Build APKs
+name: Build ARM64 APK
 
 on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: build-apks-${{ github.ref }}
+  group: build-arm64-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Build Android APKs
-    runs-on: ubuntu-latest
+    name: Build Android ARM64 APK
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: lts/*
+          node-version: '24'
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: stable
+          go-version: '1.27.x'
           cache: false
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: 3.47.7
           channel: stable
           cache: true
 
+      - name: Check signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing repository Actions secret: $name"
+              exit 1
+            fi
+          done
+
       - name: Validate bundled scanner CIDRs
         working-directory: scanner
         run: go run ./cmd/normalize_scanner_cidrs --check ../assets/scanner
 
-      - name: Build Psiphon native libraries
+      - name: Build Psiphon native library
         run: bash scripts/build_psiphon.sh
 
       - name: Fetch verified Tor and lyrebird Android bundles
@@ -83,40 +102,72 @@ jobs:
       - name: Run Flutter tests
         run: flutter test --no-pub
 
-      - name: Build split and universal APKs
+      - name: Build, sign, and verify ARM64 APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          umask 077
+
           version="$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)"
-          mkdir -p dist
+          mkdir -p android/keystore dist
+          cleanup() {
+            rm -f android/key.properties android/keystore/release.jks
+          }
+          trap cleanup EXIT
 
-          # The Android Gradle config falls back to the standard debug keystore
-          # when android/key.properties is absent. No signing secrets are needed.
-          flutter build apk --release --split-per-abi --no-pub
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/keystore/release.jks
+          chmod 600 android/keystore/release.jks
 
-          for abi in arm64-v8a armeabi-v7a x86_64; do
-            apk="build/app/outputs/flutter-apk/app-$abi-release.apk"
-            test -s "$apk"
-            cp "$apk" "dist/bpb-$version-$abi.apk"
-          done
+          keytool -list -keystore android/keystore/release.jks \
+            -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
 
-          flutter build apk --release --no-pub
+          {
+            printf 'storeFile=../keystore/release.jks\n'
+            printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > android/key.properties
+          chmod 600 android/key.properties
+
+          flutter build apk --release --target-platform android-arm64 --no-pub
+
           apk="build/app/outputs/flutter-apk/app-release.apk"
           test -s "$apk"
-          cp "$apk" "dist/bpb-$version-universal.apk"
+          cp "$apk" "dist/bpb-$version-arm64-v8a.apk"
+
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?Android SDK path is missing}}"
+          apksigner="$(find "$sdk/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner"
+
+          "$apksigner" verify --verbose --print-certs "dist/bpb-$version-arm64-v8a.apk" \
+            | tee dist/APK-SIGNATURE.txt
+
+          abis="$(unzip -Z1 "dist/bpb-$version-arm64-v8a.apk" \
+            | awk -F/ '$1 == "lib" && NF >= 3 { print $2 }' \
+            | sort -u | paste -sd, -)"
+          if [[ "$abis" != "arm64-v8a" ]]; then
+            echo "::error::Unexpected native ABIs in APK: $abis"
+            exit 1
+          fi
 
           sha256sum dist/bpb-*.apk > dist/SHA256SUMS
           {
             echo "Version: $version"
             echo "Commit: $GITHUB_SHA"
+            echo "ABI: arm64-v8a"
+            echo "Signing: persistent private keystore from GitHub Actions secrets"
             echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-            echo "Signing: Android debug keystore (not the upstream release key)"
           } > dist/BUILD-INFO.txt
 
-      - name: Upload APKs and checksums
-        uses: actions/upload-artifact@v4
+      - name: Upload ARM64 APK and verification data
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: bpb-apks-${{ github.sha }}
+          name: bpb-arm64-${{ github.sha }}
           path: dist/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
           compression-level: 0
