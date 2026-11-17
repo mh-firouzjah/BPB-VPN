@@ -36,8 +36,9 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 24
         ndk {
-            // Filter all native dependencies to the ABI(s) selected for this build.
-            abiFilters += packagedAbis
+            // Flutter 3.35+ pre-populates these filters; clear them before selecting this build's ABIs.
+            abiFilters.clear()
+            abiFilters.addAll(packagedAbis)
         }
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
